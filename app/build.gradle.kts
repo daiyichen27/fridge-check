@@ -1,3 +1,4 @@
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
@@ -6,9 +7,7 @@ plugins {
 
 android {
     namespace = "com.example.fridgecheck"
-    compileSdk {
-        version = release(36)
-    }
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.example.fridgecheck"
@@ -18,6 +17,15 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        val apiKey: String = project.rootProject.file("local.properties")
+            .let { propFile ->
+                val properties = Properties()
+                properties.load(propFile.inputStream())
+                properties.getProperty("GEMINI_API_KEY") ?: ""
+            }
+
+        buildConfigField("String", "GEMINI_API_KEY", "\"$apiKey\"")
     }
 
     buildTypes {
@@ -35,6 +43,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

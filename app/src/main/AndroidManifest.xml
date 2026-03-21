@@ -14,7 +14,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.FridgeCheck">
         <activity
-            android:name=".MainActivity"
+            android:name=".ui.MainActivity"
             android:exported="true"
             android:theme="@style/Theme.FridgeCheck">
             <intent-filter>
