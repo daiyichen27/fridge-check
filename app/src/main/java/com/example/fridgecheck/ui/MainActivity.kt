@@ -11,12 +11,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -144,7 +146,7 @@ class MainActivity : ComponentActivity() {
                                 .padding(horizontal = 24.dp), // Keeps it away from the side edges
                             color = Color.White,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center, // Centers the lines of text
-                            style = androidx.compose.material3.MaterialTheme.typography.titleLarge // Makes it more readable
+                            style = MaterialTheme.typography.titleLarge // Makes it more readable
                         )
                     }
 
@@ -158,6 +160,12 @@ class MainActivity : ComponentActivity() {
                                 ingredients = ingredientList,
                                 selected = selectedIngredients,
                                 onSelectionChange = { selectedIngredients = it },
+                                onAddIngredient = { newItem ->
+                                    if (!ingredientList.contains(newItem)) {
+                                        ingredientList = ingredientList + newItem
+                                        selectedIngredients = selectedIngredients + newItem
+                                    }
+                                },
                                 onSearch = {
                                     showSelectionMenu = false
                                     // This is where we will eventually trigger the Spoonacular API
@@ -181,8 +189,11 @@ fun IngredientSelectionContent(
     ingredients: List<String>,
     selected: Set<String>,
     onSelectionChange: (Set<String>) -> Unit,
+    onAddIngredient: (String) -> Unit,
     onSearch: () -> Unit
 ) {
+    var manualText by remember { mutableStateOf("") }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -200,7 +211,35 @@ fun IngredientSelectionContent(
             color = Color.Gray
         )
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            androidx.compose.material3.OutlinedTextField(
+                value = manualText,
+                onValueChange = { manualText = it },
+                label = { Text("Add missing item") },
+                modifier = Modifier.weight(1f),
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Button(
+                onClick = {
+                    if (manualText.isNotBlank()) {
+                        onAddIngredient(manualText.trim())
+                        manualText = "" // Clear input
+                    }
+                },
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("Add")
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
 
         // This handles the "wrapping" of buttons so they don't go off-screen
         FlowRow(
