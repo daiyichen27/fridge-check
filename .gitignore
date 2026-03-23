@@ -25,7 +25,6 @@
 
 # --- Device / System Specific ---
 .DS_Store
-/captures
 *.pyc
 Thumb.db
 
