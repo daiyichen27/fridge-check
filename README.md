@@ -13,7 +13,7 @@ FridgeCheck turns your smartphone into a culinary consultant. By combining Googl
 
 **Dynamic UI:** High-performance scrolling and image loading optimized for high-refresh-rate displays.
 
-**Direct Access:** Tap any recipe card to open full cooking instructions in your mobile browser.
+**Direct Access:** Tap any recipe card to open full cooking instructions in your mobile browser. Malicious and non-English results are filtered out to protect users.
 
 ## 🛠️ Tech Stack
 **Language:** Kotlin
