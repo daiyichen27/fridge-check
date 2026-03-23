@@ -1,4 +1,14 @@
 import java.util.Properties
+import java.io.FileInputStream
+
+// 1. Define the properties object
+val localProperties = Properties()
+val localPropertiesFile = rootProject.file("local.properties")
+
+// 2. Load the file if it exists
+if (localPropertiesFile.exists()) {
+    localProperties.load(FileInputStream(localPropertiesFile))
+}
 
 plugins {
     alias(libs.plugins.android.application)
@@ -18,14 +28,15 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        val apiKey: String = project.rootProject.file("local.properties")
-            .let { propFile ->
-                val properties = Properties()
-                properties.load(propFile.inputStream())
-                properties.getProperty("GEMINI_API_KEY") ?: ""
-            }
+        // Use the localProperties object we just created
+        val geminiKey = localProperties.getProperty("GEMINI_API_KEY") ?: ""
+        buildConfigField("String", "GEMINI_API_KEY", "\"$geminiKey\"")
 
-        buildConfigField("String", "GEMINI_API_KEY", "\"$apiKey\"")
+        // Do the same for your Edamam keys while you're here!
+        val edamamId = localProperties.getProperty("EDAMAM_ID") ?: ""
+        val edamamKey = localProperties.getProperty("EDAMAM_KEY") ?: ""
+        buildConfigField("String", "EDAMAM_ID", "\"$edamamId\"")
+        buildConfigField("String", "EDAMAM_KEY", "\"$edamamKey\"")
     }
 
     buildTypes {

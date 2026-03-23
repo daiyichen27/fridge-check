@@ -46,15 +46,18 @@ import androidx.core.app.ActivityCompat
 import com.example.fridgecheck.BuildConfig
 import com.example.fridgecheck.data.CameraManager
 import com.example.fridgecheck.data.GeminiManager
+import com.example.fridgecheck.data.Recipe
+import com.example.fridgecheck.data.RecipeService
+import com.example.fridgecheck.data.countMissingIngredients
 import com.example.fridgecheck.ui.theme.FridgeCheckTheme
 import kotlinx.coroutines.launch
+import androidx.core.net.toUri
 
 class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-
 
         // Request Permission (One-time check)
         ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA), 0)
@@ -75,6 +78,8 @@ class MainActivity : ComponentActivity() {
                 // A flag to show/hide the selection menu
                 var showSelectionMenu by remember { mutableStateOf(false) }
 
+                var showRecipeResults by remember { mutableStateOf(false) }
+
                 // Initialize Gemini
                 val geminiManager = remember { GeminiManager(BuildConfig.GEMINI_API_KEY) }
 
@@ -82,6 +87,17 @@ class MainActivity : ComponentActivity() {
                 val cameraManager = remember {
                     CameraManager(context)
                 }
+
+                val recipeService = remember {
+                    retrofit2.Retrofit.Builder()
+                        .baseUrl("https://api.edamam.com/")
+                        .addConverterFactory(retrofit2.converter.gson.GsonConverterFactory.create())
+                        .build()
+                        .create(RecipeService::class.java)
+                }
+
+                // And a state to hold the results
+                var recipeResults by remember { mutableStateOf<List<Recipe>>(emptyList()) }
 
                 Scaffold { innerPadding ->
                     Box(modifier = Modifier.padding(innerPadding)) {
@@ -101,6 +117,7 @@ class MainActivity : ComponentActivity() {
                                         // 2. Send the image to our GeminiManager
                                         val response = geminiManager.analyzeFridgeImage(bitmap)
 
+                                        Log.d("GeminiRaw", "Response: $response")
                                         // 3. Updated Validation Logic
                                         if (!response.isNullOrBlank() && !response.contains(
                                                 "NO_FOOD_DETECTED",
@@ -167,14 +184,90 @@ class MainActivity : ComponentActivity() {
                                     }
                                 },
                                 onSearch = {
-                                    showSelectionMenu = false
-                                    // This is where we will eventually trigger the Spoonacular API
-                                    Log.d(
-                                        "FridgeCheck",
-                                        "Searching recipes for: $selectedIngredients"
-                                    )
+                                    scope.launch {
+                                        showSelectionMenu = false
+                                        resultText = "Finding the best recipes..."
+
+                                        try {
+                                            // Join ingredients into a comma-separated string for Edamam
+                                            val query = selectedIngredients.joinToString(",")
+
+                                            val response = recipeService.searchRecipes(
+                                                query = query,
+                                                appId = BuildConfig.EDAMAM_ID,
+                                                appKey = BuildConfig.EDAMAM_KEY
+                                            )
+
+                                            val sortedList = response.hits
+                                                .map { it.recipe }
+                                                .sortedBy { recipe ->
+                                                    countMissingIngredients(recipe, selectedIngredients)
+                                                }
+
+                                            if (sortedList.isEmpty()) {
+                                                // 1. The Recipe BottomSheet stays HIDDEN (showRecipeResults remains false)
+                                                resultText = "No recipes found for these items."
+
+                                                // 2. We clear any old results so the UI doesn't show "ghost" data
+                                                recipeResults = emptyList()
+                                            } else {
+                                                // This ONLY runs if there is at least one recipe
+                                                recipeResults = sortedList
+                                                showRecipeResults = true
+                                            }
+                                        } catch (e: Exception) {
+                                            resultText = "Error: ${e.localizedMessage}"
+                                            Log.e("FridgeCheck", "Search failed", e)
+                                        }
+                                    }
                                 }
                             )
+                        }
+                    }
+
+                    if (showRecipeResults) {
+                        ModalBottomSheet(
+                            onDismissRequest = {
+                                showRecipeResults = false
+                                // Reset the text back to the starting message
+                                resultText = "Ready to scan!"
+                            },
+                            sheetState = rememberModalBottomSheetState()
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp)
+                                    .navigationBarsPadding() // Crucial for S25 Ultra gesture bar
+                            ) {
+                                Text(
+                                    text = "Recommended Recipes",
+                                    style = MaterialTheme.typography.headlineSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(bottom = 16.dp)
+                                )
+
+                                // THE LAZY COLUMN GOES HERE
+                                androidx.compose.foundation.lazy.LazyColumn(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    items(recipeResults.size) { index ->
+                                        val recipe = recipeResults[index]
+                                        RecipeCard(
+                                            recipe = recipe,
+                                            ownedIngredients = selectedIngredients,
+                                            onClick = {
+                                                // Intent to open the URL in Chrome/Samsung Browser
+                                                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, recipe.url.toUri())
+                                                context.startActivity(intent)
+                                            }
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(24.dp))
+                            }
                         }
                     }
                 }
@@ -281,6 +374,60 @@ fun IngredientSelectionContent(
             shape = RoundedCornerShape(12.dp)
         ) {
             Text("Find Recipes with ${selected.size} Items")
+        }
+    }
+}
+
+@Composable
+fun RecipeCard(recipe: Recipe, ownedIngredients: Set<String>, onClick: () -> Unit) {
+    // 1. Calculate the match score
+    val missingCount = remember(recipe, ownedIngredients) {
+        val matches = recipe.ingredientLines.count { line ->
+            ownedIngredients.any { owned -> line.contains(owned, ignoreCase = true) }
+        }
+        (recipe.ingredientLines.size - matches).coerceAtLeast(0)
+    }
+
+    androidx.compose.material3.Card(
+        onClick = onClick, // Makes the whole card clickable
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        shape = RoundedCornerShape(12.dp),
+        colors = androidx.compose.material3.CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        )
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = recipe.label,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1 // Keeps the UI clean on your S25 Ultra
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // 2. Visual indicator for the "Match"
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                val isPerfect = missingCount == 0
+                val color = if (isPerfect) Color(0xFF4CAF50) else Color.Gray
+
+                Text(
+                    text = if (isPerfect) "★ Perfect Match" else "Missing $missingCount items",
+                    color = color,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                Text(
+                    text = "• ${recipe.ingredientLines.size} total",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.Gray
+                )
+            }
         }
     }
 }
