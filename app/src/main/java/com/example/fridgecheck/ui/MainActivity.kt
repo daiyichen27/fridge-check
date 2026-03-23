@@ -1,11 +1,15 @@
 package com.example.fridgecheck.ui
 
 import android.Manifest
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -42,6 +46,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
@@ -54,6 +59,7 @@ import com.example.fridgecheck.data.countMissingIngredients
 import com.example.fridgecheck.ui.theme.FridgeCheckTheme
 import kotlinx.coroutines.launch
 import androidx.core.net.toUri
+import com.example.fridgecheck.R
 
 class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
@@ -265,6 +271,28 @@ class MainActivity : ComponentActivity() {
                                                 context.startActivity(intent)
                                             }
                                         )
+                                    }
+                                    item {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = 24.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Image(
+                                                painter = painterResource(id = R.drawable.edamam_badge),
+                                                contentDescription = "Powered by Edamam",
+                                                modifier = Modifier
+                                                    .height(40.dp)
+                                                    .clickable {
+                                                        val intent = Intent(
+                                                            Intent.ACTION_VIEW,
+                                                            Uri.parse("https://www.edamam.com")
+                                                        )
+                                                        context.startActivity(intent)
+                                                    }
+                                            )
+                                        }
                                     }
                                 }
 

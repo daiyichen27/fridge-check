@@ -42,7 +42,7 @@ FridgeCheck turns your smartphone into a culinary consultant. By combining Googl
 Clone the repository:
 
 ```Bash 
-git clone https://github.com/yourusername/fridgecheck.git
+git clone https://github.com/daiyichen27/fridgecheck.git
 ```
 
 Open the project in Android Studio (Ladybug or newer).
@@ -66,6 +66,13 @@ Sync Gradle and run the app on your device or emulator.
 
 **Display:** Results are rendered in a LazyColumn with asynchronous image loading for a smooth UX.
 
-## 🛡️ License
+## ⚖️ Attributions
+This project is made possible by the following amazing services:
 
+* **[Edamam Recipe Search API](https://developer.edamam.com/):** Provides the extensive database of recipes, nutritional information, and food images.
+* **[Google Gemini 3 Flash](https://aistudio.google.com/):** Powers the computer vision and ingredient extraction logic that makes "FridgeCheck" smart.
+* **[Coil](https://coil-kt.github.io/coil/):** Handles the high-performance image loading and caching for the recipe results.
+* **[Material Design 3](https://m3.material.io/):** For the design system and iconography used throughout the interface.
+
+## 🛡️ License
 Distributed under the MIT License. See LICENSE for more information.
