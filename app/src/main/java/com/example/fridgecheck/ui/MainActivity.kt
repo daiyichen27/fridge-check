@@ -8,6 +8,7 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -60,6 +61,7 @@ import com.example.fridgecheck.ui.theme.FridgeCheckTheme
 import kotlinx.coroutines.launch
 import androidx.core.net.toUri
 import com.example.fridgecheck.R
+import androidx.core.graphics.toColorInt
 
 class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
@@ -206,7 +208,22 @@ class MainActivity : ComponentActivity() {
                                                 appKey = BuildConfig.EDAMAM_KEY
                                             )
 
-                                            val sortedList = response.hits
+                                            // --- FILTRATION LAYER ---
+                                            val cleanHits = response.hits.filter { hit ->
+                                                val title = hit.recipe.label
+                                                val url = hit.recipe.url
+
+                                                // 1. Only English characters in title
+                                                val isEnglish = title.all { it.code < 128 }
+
+                                                // 2. Block specific untrusted or low-quality domains
+                                                val blockedDomains = listOf(".ru", ".cn", ".ir", ".tk", "spammyrecipes.net")
+                                                val isTrusted = blockedDomains.none { url.contains(it, ignoreCase = true) }
+
+                                                isEnglish && isTrusted
+                                            }
+
+                                            val sortedList = cleanHits
                                                 .map { it.recipe }
                                                 .sortedBy { recipe ->
                                                     countMissingIngredients(recipe, selectedIngredients)
@@ -266,9 +283,14 @@ class MainActivity : ComponentActivity() {
                                             recipe = recipe,
                                             ownedIngredients = selectedIngredients,
                                             onClick = {
-                                                // Intent to open the URL in Chrome/Samsung Browser
-                                                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, recipe.url.toUri())
-                                                context.startActivity(intent)
+                                                val uri = recipe.url.toUri()
+                                                val builder = CustomTabsIntent.Builder()
+
+                                                builder.setToolbarColor("#4CAF50".toColorInt())
+                                                builder.setShowTitle(true)
+
+                                                val customTabsIntent = builder.build()
+                                                customTabsIntent.launchUrl(context, uri)
                                             }
                                         )
                                     }
@@ -287,7 +309,7 @@ class MainActivity : ComponentActivity() {
                                                     .clickable {
                                                         val intent = Intent(
                                                             Intent.ACTION_VIEW,
-                                                            Uri.parse("https://www.edamam.com")
+                                                            "https://www.edamam.com".toUri()
                                                         )
                                                         context.startActivity(intent)
                                                     }
