@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -38,6 +39,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -380,7 +382,6 @@ fun IngredientSelectionContent(
 
 @Composable
 fun RecipeCard(recipe: Recipe, ownedIngredients: Set<String>, onClick: () -> Unit) {
-    // 1. Calculate the match score
     val missingCount = remember(recipe, ownedIngredients) {
         val matches = recipe.ingredientLines.count { line ->
             ownedIngredients.any { owned -> line.contains(owned, ignoreCase = true) }
@@ -389,43 +390,43 @@ fun RecipeCard(recipe: Recipe, ownedIngredients: Set<String>, onClick: () -> Uni
     }
 
     androidx.compose.material3.Card(
-        onClick = onClick, // Makes the whole card clickable
+        onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp),
-        shape = RoundedCornerShape(12.dp),
-        colors = androidx.compose.material3.CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-        )
+        shape = RoundedCornerShape(12.dp)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = recipe.label,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1 // Keeps the UI clean on your S25 Ultra
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // THE IMAGE COMPONENT
+            coil.compose.AsyncImage(
+                model = recipe.image,
+                contentDescription = recipe.label,
+                modifier = Modifier
+                    .size(80.dp)
+                    .clip(RoundedCornerShape(8.dp)),
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop
             )
 
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.width(16.dp))
 
-            // 2. Visual indicator for the "Match"
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                val isPerfect = missingCount == 0
-                val color = if (isPerfect) Color(0xFF4CAF50) else Color.Gray
-
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = if (isPerfect) "★ Perfect Match" else "Missing $missingCount items",
-                    color = color,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.Bold
+                    text = recipe.label,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                 )
 
-                Spacer(modifier = Modifier.width(8.dp))
-
+                val isPerfect = missingCount == 0
                 Text(
-                    text = "• ${recipe.ingredientLines.size} total",
+                    text = if (isPerfect) "★ Perfect Match" else "Missing $missingCount items",
+                    color = if (isPerfect) Color(0xFF4CAF50) else Color.Gray,
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color.Gray
+                    fontWeight = FontWeight.Bold
                 )
             }
         }
