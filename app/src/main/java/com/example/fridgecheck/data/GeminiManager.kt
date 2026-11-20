@@ -16,13 +16,13 @@ class GeminiManager(apiKey: String) {
     )
 
     // 2. The brain function
-    suspend fun analyzeFridgeImage(bitmap: Bitmap): String? = withContext(Dispatchers.IO) {
+    suspend fun analyzeFoodImage(bitmap: Bitmap): String? = withContext(Dispatchers.IO) {
         try {
             Log.d("GEMINI_DEBUG", "1. Starting Analysis...")
 
             val inputContent = content {
                 image(bitmap)
-                text("Analyze this image. If you see food or kitchen ingredients, list them separated by commas (e.g., Milk, Eggs). If the image does not contain food or is not a kitchen environment, return exactly the phrase 'NO_FOOD_DETECTED'. Do not describe the image.")
+                text("Analyze this image. If you see food items or ingredients, list them separated by commas (e.g., Milk, Eggs). If the image does not contain food or ingredients, return exactly the phrase 'NO_FOOD_DETECTED'. Do not describe the image.")
             }
 
             Log.d("GEMINI_DEBUG", "2. Sending to Google Servers...")
@@ -36,4 +36,6 @@ class GeminiManager(apiKey: String) {
             null
         }
     }
+
+    suspend fun analyzeFridgeImage(bitmap: Bitmap): String? = analyzeFoodImage(bitmap)
 }

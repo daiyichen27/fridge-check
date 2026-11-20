@@ -32,7 +32,11 @@ android {
         val geminiKey = localProperties.getProperty("GEMINI_API_KEY") ?: ""
         buildConfigField("String", "GEMINI_API_KEY", "\"$geminiKey\"")
 
-        // Do the same for your Edamam keys while you're here!
+        // TheMealDB API Key (defaults to free public key "1")
+        val mealDbKey = localProperties.getProperty("MEALDB_API_KEY") ?: "1"
+        buildConfigField("String", "MEALDB_API_KEY", "\"$mealDbKey\"")
+
+        // Legacy Edamam keys kept for compatibility
         val edamamId = localProperties.getProperty("EDAMAM_ID") ?: ""
         val edamamKey = localProperties.getProperty("EDAMAM_KEY") ?: ""
         buildConfigField("String", "EDAMAM_ID", "\"$edamamId\"")

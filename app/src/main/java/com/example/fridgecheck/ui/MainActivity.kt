@@ -57,10 +57,14 @@ import com.example.fridgecheck.data.GeminiManager
 import com.example.fridgecheck.data.Recipe
 import com.example.fridgecheck.data.RecipeService
 import com.example.fridgecheck.data.countMissingIngredients
+import com.example.fridgecheck.data.findOverlappingMeals
+import com.example.fridgecheck.data.toFallbackRecipe
 import com.example.fridgecheck.ui.theme.FridgeCheckTheme
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import androidx.core.net.toUri
-import com.example.fridgecheck.R
 import androidx.core.graphics.toColorInt
 
 class MainActivity : ComponentActivity() {
@@ -100,7 +104,7 @@ class MainActivity : ComponentActivity() {
 
                 val recipeService = remember {
                     retrofit2.Retrofit.Builder()
-                        .baseUrl("https://api.edamam.com/")
+                        .baseUrl("https://www.themealdb.com/")
                         .addConverterFactory(retrofit2.converter.gson.GsonConverterFactory.create())
                         .build()
                         .create(RecipeService::class.java)
@@ -116,53 +120,76 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier.fillMaxSize()
                         )
 
-                        Button(
-                            onClick = { // We use a scope because Gemini takes a few seconds to "think"
-                                scope.launch {
-                                    resultText = "Scanning your fridge..."
-                                    // 1. Trigger the camera and get the resulting bitmap
-                                    val bitmap = cameraManager.takePhoto()
-
-                                    if (bitmap != null) {
-                                        // 2. Send the image to our GeminiManager
-                                        val response = geminiManager.analyzeFridgeImage(bitmap)
-
-                                        Log.d("GeminiRaw", "Response: $response")
-                                        // 3. Updated Validation Logic
-                                        if (!response.isNullOrBlank() && !response.contains(
-                                                "NO_FOOD_DETECTED",
-                                                true
-                                            )
-                                        ) {
-                                            // Check if Gemini returned a long sentence (which means it's describing the room)
-                                            // Real ingredient lists are usually short.
-                                            // If the response is more than 100 characters, it's probably a description we should ignore.
-                                            if (response.length > 100) {
-                                                resultText =
-                                                    "I see things, but no food. Try a closer shot!"
-                                                return@launch
-                                            }
-
-                                            ingredientList = response.split(",")
-                                                .map { it.trim() }
-                                                .filter { it.isNotEmpty() }
-
-                                            selectedIngredients = ingredientList.toSet()
-                                            showSelectionMenu = true
-                                            resultText = "Found ${ingredientList.size} items!"
-                                        } else {
-                                            // This triggers if Gemini says NO_FOOD_DETECTED or returns null
-                                            resultText =
-                                                "No food detected. Make sure the lighting is good!"
-                                        }
-                                    }
-                                }
-                            },
+                        Column(
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
-                                .padding(bottom = innerPadding.calculateBottomPadding() + 128.dp)
+                                .padding(bottom = innerPadding.calculateBottomPadding() + 64.dp)
+                                .padding(horizontal = 24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            Text("Check Fridge")
+                            Button(
+                                onClick = { // We use a scope because Gemini takes a few seconds to "think"
+                                    scope.launch {
+                                        resultText = "Scanning ingredients..."
+                                        // 1. Trigger the camera and get the resulting bitmap
+                                        val bitmap = cameraManager.takePhoto()
+
+                                        if (bitmap != null) {
+                                            // 2. Send the image to our GeminiManager
+                                            val response = geminiManager.analyzeFoodImage(bitmap)
+
+                                            Log.d("GeminiRaw", "Response: $response")
+                                            // 3. Updated Validation Logic
+                                            if (!response.isNullOrBlank() && !response.contains(
+                                                    "NO_FOOD_DETECTED",
+                                                    true
+                                                )
+                                            ) {
+                                                // Check if Gemini returned a long sentence (which means it's describing the room)
+                                                // Real ingredient lists are usually short.
+                                                // If the response is more than 100 characters, it's probably a description we should ignore.
+                                                if (response.length > 100) {
+                                                    resultText =
+                                                        "I see things, but no food. Try a closer shot!"
+                                                    return@launch
+                                                }
+
+                                                ingredientList = response.split(",")
+                                                    .map { it.trim() }
+                                                    .filter { it.isNotEmpty() }
+
+                                                selectedIngredients = ingredientList.toSet()
+                                                showSelectionMenu = true
+                                                resultText = "Found ${ingredientList.size} items!"
+                                            } else {
+                                                // This triggers if Gemini says NO_FOOD_DETECTED or returns null
+                                                resultText =
+                                                    "No food detected. Make sure the lighting is good!"
+                                            }
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(0.75f),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text("Scan Ingredients")
+                            }
+
+                            androidx.compose.material3.OutlinedButton(
+                                onClick = {
+                                    showSelectionMenu = true
+                                },
+                                modifier = Modifier.fillMaxWidth(0.75f),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
+                                    containerColor = Color.Black.copy(alpha = 0.55f),
+                                    contentColor = Color.White
+                                ),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.8f))
+                            ) {
+                                Text("Type Ingredients Manually")
+                            }
                         }
 
                         Text(
@@ -199,35 +226,64 @@ class MainActivity : ComponentActivity() {
                                         resultText = "Finding the best recipes..."
 
                                         try {
-                                            // Join ingredients into a comma-separated string for Edamam
-                                            val query = selectedIngredients.joinToString(",")
+                                            val apiKey = BuildConfig.MEALDB_API_KEY.ifBlank { "1" }
+                                            val cleanIngredients = selectedIngredients.map { it.trim() }.filter { it.isNotEmpty() }
 
-                                            val response = recipeService.searchRecipes(
-                                                query = query,
-                                                appId = BuildConfig.EDAMAM_ID,
-                                                appKey = BuildConfig.EDAMAM_KEY
-                                            )
-
-                                            // --- FILTRATION LAYER ---
-                                            val cleanHits = response.hits.filter { hit ->
-                                                val title = hit.recipe.label
-                                                val url = hit.recipe.url
-
-                                                // 1. Only English characters in title
-                                                val isEnglish = title.all { it.code < 128 }
-
-                                                // 2. Block specific untrusted or low-quality domains
-                                                val blockedDomains = listOf(".ru", ".cn", ".ir", ".tk", "spammyrecipes.net")
-                                                val isTrusted = blockedDomains.none { url.contains(it, ignoreCase = true) }
-
-                                                isEnglish && isTrusted
+                                            if (cleanIngredients.isEmpty()) {
+                                                resultText = "No ingredients selected."
+                                                recipeResults = emptyList()
+                                                return@launch
                                             }
 
-                                            val sortedList = cleanHits
-                                                .map { it.recipe }
-                                                .sortedBy { recipe ->
-                                                    countMissingIngredients(recipe, selectedIngredients)
-                                                }
+                                            // Query each ingredient separately using MealDB's free single-ingredient filter endpoint
+                                            val queryResults = coroutineScope {
+                                                cleanIngredients.map { ingredient ->
+                                                    async {
+                                                        try {
+                                                            val response = recipeService.filterByIngredient(apiKey, ingredient)
+                                                            response.meals ?: emptyList()
+                                                        } catch (e: Exception) {
+                                                            Log.e("FridgeCheck", "Failed to filter for $ingredient", e)
+                                                            emptyList()
+                                                        }
+                                                    }
+                                                }.awaitAll()
+                                            }
+
+                                            // Find recipes that overlap across multiple ingredient queries
+                                            val overlappingSummaries = findOverlappingMeals(queryResults)
+
+                                            if (overlappingSummaries.isEmpty()) {
+                                                resultText = "No overlapping recipes found for these items."
+                                                recipeResults = emptyList()
+                                                return@launch
+                                            }
+
+                                            // Limit detail lookups to avoid excessive network requests (top 25)
+                                            val candidates = overlappingSummaries.take(25)
+                                            val fullRecipes = coroutineScope {
+                                                candidates.map { summary ->
+                                                    async {
+                                                        try {
+                                                            val detailResponse = recipeService.lookupMealById(apiKey, summary.idMeal)
+                                                            val detail = detailResponse.meals?.firstOrNull()
+                                                            detail?.toRecipe() ?: summary.toFallbackRecipe()
+                                                        } catch (e: Exception) {
+                                                            Log.w("FridgeCheck", "Failed lookup for ${summary.idMeal}, falling back", e)
+                                                            summary.toFallbackRecipe()
+                                                        }
+                                                    }
+                                                }.awaitAll()
+                                            }
+
+                                            // Filtration: Only English characters in title
+                                            val cleanRecipes = fullRecipes.filter { recipe ->
+                                                recipe.label.all { it.code < 128 }
+                                            }
+
+                                            val sortedList = cleanRecipes.sortedBy { recipe ->
+                                                countMissingIngredients(recipe, selectedIngredients)
+                                            }
 
                                             if (sortedList.isEmpty()) {
                                                 // 1. The Recipe BottomSheet stays HIDDEN (showRecipeResults remains false)
@@ -239,6 +295,7 @@ class MainActivity : ComponentActivity() {
                                                 // This ONLY runs if there is at least one recipe
                                                 recipeResults = sortedList
                                                 showRecipeResults = true
+                                                resultText = "Found ${sortedList.size} recipes!"
                                             }
                                         } catch (e: Exception) {
                                             resultText = "Error: ${e.localizedMessage}"
@@ -287,7 +344,7 @@ class MainActivity : ComponentActivity() {
 
                                                 // 1. Create the color scheme (Non-deprecated way)
                                                 val defaultColors = CustomTabColorSchemeParams.Builder()
-                                                    .setToolbarColor("#4CAF50".toColorInt()) // Edamam Green
+                                                    .setToolbarColor("#D84315".toColorInt()) // TheMealDB Orange/Warm Red
                                                     .build()
 
                                                 // 2. Build the Intent with the color scheme
@@ -308,19 +365,27 @@ class MainActivity : ComponentActivity() {
                                                 .padding(vertical = 24.dp),
                                             horizontalAlignment = Alignment.CenterHorizontally
                                         ) {
-                                            Image(
-                                                painter = painterResource(id = R.drawable.edamam_badge),
-                                                contentDescription = "Powered by Edamam",
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.Center,
                                                 modifier = Modifier
-                                                    .height(40.dp)
+                                                    .clip(RoundedCornerShape(8.dp))
                                                     .clickable {
                                                         val intent = Intent(
                                                             Intent.ACTION_VIEW,
-                                                            "https://www.edamam.com".toUri()
+                                                            "https://www.themealdb.com".toUri()
                                                         )
                                                         context.startActivity(intent)
                                                     }
-                                            )
+                                                    .padding(8.dp)
+                                            ) {
+                                                Text(
+                                                    text = "Recipe data & imagery by TheMealDB",
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    color = MaterialTheme.colorScheme.primary,
+                                                    fontWeight = FontWeight.Medium
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -346,6 +411,16 @@ fun IngredientSelectionContent(
 ) {
     var manualText by remember { mutableStateOf("") }
 
+    val handleAdd = {
+        if (manualText.isNotBlank()) {
+            val items = manualText.split(",")
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+            items.forEach { onAddIngredient(it) }
+            manualText = ""
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -353,12 +428,15 @@ fun IngredientSelectionContent(
             .navigationBarsPadding() // Keeps it above the Samsung gesture bar
     ) {
         Text(
-            text = "Verify Ingredients",
+            text = if (ingredients.isEmpty()) "Enter Ingredients" else "Verify Ingredients",
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold
         )
         Text(
-            text = "Tap to deselect items you don't want to use.",
+            text = if (ingredients.isEmpty())
+                "Type your ingredients to find matching recipes."
+            else
+                "Tap to deselect items you don't want to use.",
             style = MaterialTheme.typography.bodyMedium,
             color = Color.Gray
         )
@@ -372,19 +450,20 @@ fun IngredientSelectionContent(
             androidx.compose.material3.OutlinedTextField(
                 value = manualText,
                 onValueChange = { manualText = it },
-                label = { Text("Add missing item") },
+                label = { Text("Add ingredient (e.g. Chicken)") },
                 modifier = Modifier.weight(1f),
                 singleLine = true,
-                shape = RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(12.dp),
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                    imeAction = androidx.compose.ui.text.input.ImeAction.Done
+                ),
+                keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+                    onDone = { handleAdd() }
+                )
             )
             Spacer(modifier = Modifier.width(8.dp))
             Button(
-                onClick = {
-                    if (manualText.isNotBlank()) {
-                        onAddIngredient(manualText.trim())
-                        manualText = "" // Clear input
-                    }
-                },
+                onClick = handleAdd,
                 shape = RoundedCornerShape(12.dp)
             ) {
                 Text("Add")
@@ -393,35 +472,51 @@ fun IngredientSelectionContent(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // This handles the "wrapping" of buttons so they don't go off-screen
-        FlowRow(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState()), // In case Gemini finds 50 items!
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            ingredients.forEach { item ->
-                val isSelected = selected.contains(item)
-                FilterChip(
-                    selected = isSelected,
-                    onClick = {
-                        if (isSelected) onSelectionChange(selected - item)
-                        else onSelectionChange(selected + item)
-                    },
-                    label = { Text(item) },
-                    // Replace the Icon block with this simple Text block
-                    leadingIcon = if (isSelected) {
-                        {
-                            Text(
-                                text = "✓",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(start = 4.dp)
-                            )
-                        }
-                    } else null
+        if (ingredients.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 32.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "No ingredients added yet.\nType ingredients above and tap Add!",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.Gray,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
                 )
+            }
+        } else {
+            // This handles the "wrapping" of buttons so they don't go off-screen
+            FlowRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()), // In case Gemini finds 50 items!
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                ingredients.forEach { item ->
+                    val isSelected = selected.contains(item)
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = {
+                            if (isSelected) onSelectionChange(selected - item)
+                            else onSelectionChange(selected + item)
+                        },
+                        label = { Text(item) },
+                        // Replace the Icon block with this simple Text block
+                        leadingIcon = if (isSelected) {
+                            {
+                                Text(
+                                    text = "✓",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(start = 4.dp)
+                                )
+                            }
+                        } else null
+                    )
+                }
             }
         }
 
@@ -429,10 +524,14 @@ fun IngredientSelectionContent(
 
         Button(
             onClick = onSearch,
+            enabled = selected.isNotEmpty(),
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp)
         ) {
-            Text("Find Recipes with ${selected.size} Items")
+            Text(
+                if (selected.isEmpty()) "Add ingredients to search"
+                else "Find Recipes with ${selected.size} Items"
+            )
         }
     }
 }
