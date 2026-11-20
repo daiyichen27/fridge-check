@@ -58,7 +58,7 @@ class RecipeSortingTest {
     }
 
     @Test
-    fun `findOverlappingMeals returns intersecting meals across two ingredient queries`() {
+    fun `findOverlappingMeals returns intersecting meals first followed by partial matches`() {
         val chickenMeals = listOf(
             MealSummary(idMeal = "1", strMeal = "Chicken Curry", strMealThumb = null),
             MealSummary(idMeal = "2", strMeal = "Chicken Rice", strMealThumb = null),
@@ -70,13 +70,17 @@ class RecipeSortingTest {
         )
 
         val result = findOverlappingMeals(listOf(chickenMeals, riceMeals))
-        assertEquals(1, result.size)
+        // Chicken Rice overlaps both queries, so it's first
+        assertEquals(4, result.size)
         assertEquals("2", result.first().idMeal)
         assertEquals("Chicken Rice", result.first().strMeal)
+        // Other recipes containing at least one ingredient are still included
+        assertTrue(result.any { it.idMeal == "1" })
+        assertTrue(result.any { it.idMeal == "4" })
     }
 
     @Test
-    fun `findOverlappingMeals returns empty list when no recipes overlap`() {
+    fun `findOverlappingMeals returns recipes containing some ingredients when no recipes overlap all ingredients`() {
         val beefMeals = listOf(
             MealSummary(idMeal = "10", strMeal = "Beef Steak", strMealThumb = null)
         )
@@ -85,7 +89,9 @@ class RecipeSortingTest {
         )
 
         val result = findOverlappingMeals(listOf(beefMeals, chocolateMeals))
-        assertTrue(result.isEmpty())
+        // Rather than returning empty, it returns the meals containing some of the ingredients
+        assertEquals(2, result.size)
+        assertEquals(listOf("10", "20"), result.map { it.idMeal })
     }
 
     @Test
@@ -103,7 +109,7 @@ class RecipeSortingTest {
     }
 
     @Test
-    fun `findOverlappingMeals prioritizes full matches across 3 ingredients`() {
+    fun `findOverlappingMeals prioritizes full matches across 3 ingredients followed by partial matches`() {
         val q1 = listOf(
             MealSummary(idMeal = "1", strMeal = "All Three Match", strMealThumb = null),
             MealSummary(idMeal = "2", strMeal = "Matches Q1 and Q2", strMealThumb = null)
@@ -117,8 +123,9 @@ class RecipeSortingTest {
         )
 
         val result = findOverlappingMeals(listOf(q1, q2, q3))
-        assertEquals(1, result.size)
-        assertEquals("1", result.first().idMeal)
+        assertEquals(2, result.size)
+        assertEquals("1", result[0].idMeal)
+        assertEquals("2", result[1].idMeal)
     }
 
     @Test
@@ -141,5 +148,25 @@ class RecipeSortingTest {
         assertEquals("1 Chicken Breast", lines[0])
         assertEquals("1/4 cup Pickle Juice", lines[1])
         assertEquals("Egg", lines[2])
+    }
+
+    @Test
+    fun `pantry staples are counted as owned in missing ingredient calculation`() {
+        val recipe = Recipe(
+            label = "Seasoned Grilled Chicken",
+            image = "",
+            url = "",
+            ingredientLines = listOf("500g Chicken Breast", "1 tsp Salt", "Pinch of Black Pepper", "2 tbsp Olive Oil")
+        )
+
+        // User only scanned/selected chicken
+        val scannedIngredients = setOf("Chicken")
+        // User has common staples assumed
+        val pantryStaples = setOf("Salt", "Pepper", "Olive Oil")
+
+        val allOwned = scannedIngredients + pantryStaples
+        val missingCount = countMissingIngredients(recipe, allOwned)
+
+        assertEquals(0, missingCount)
     }
 }

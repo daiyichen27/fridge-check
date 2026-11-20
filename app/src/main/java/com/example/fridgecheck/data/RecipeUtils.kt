@@ -1,15 +1,17 @@
 package com.example.fridgecheck.data
 
 /**
- * Finds meal summaries that overlap across multiple ingredient query results.
+ * Finds meal summaries matching the given ingredient query results, prioritized by overlap.
  *
  * - If [queryResults] is empty or all results are empty, returns an empty list.
  * - If only 1 ingredient query result is provided, returns all distinct meals from that query.
- * - If multiple ingredient queries are provided, returns recipes that overlap across the queries:
- *   - If there are recipes present across all non-empty queries (full intersection),
- *     those are returned.
- *   - If no single recipe matches all queries, returns recipes that overlap across at least 2 queries,
- *     ordered by the number of matching queries descending.
+ * - If multiple ingredient queries are provided, returns all distinct recipes that appear
+ *   in one or more of the ingredient queries:
+ *   - Ranked primarily by the number of matching ingredient queries (highest overlap first).
+ *   - Ranked secondarily alphabetically by meal name ([MealSummary.strMeal]).
+ *
+ * This ensures recipes that include all or most ingredients appear at the top, while recipes
+ * that contain at least some of the ingredients are still returned rather than returning an empty list.
  */
 fun findOverlappingMeals(queryResults: List<List<MealSummary>>): List<MealSummary> {
     val validResults = queryResults.filter { it.isNotEmpty() }
@@ -19,14 +21,7 @@ fun findOverlappingMeals(queryResults: List<List<MealSummary>>): List<MealSummar
     val allMealsById = validResults.flatten().associateBy { it.idMeal }
     val idSets = validResults.map { list -> list.map { it.idMeal }.toSet() }
 
-    // Check for full intersection across all non-empty ingredient queries
-    val fullIntersectionIds = idSets.reduce { acc, set -> acc.intersect(set) }
-    if (fullIntersectionIds.isNotEmpty()) {
-        return fullIntersectionIds.mapNotNull { allMealsById[it] }
-            .sortedBy { it.strMeal }
-    }
-
-    // Fallback: partial overlap (matching at least 2 queries), sorted by match count descending
+    // Count how many ingredient query results each meal appears in
     val occurrenceCounts = mutableMapOf<String, Int>()
     for (set in idSets) {
         for (id in set) {
@@ -34,8 +29,8 @@ fun findOverlappingMeals(queryResults: List<List<MealSummary>>): List<MealSummar
         }
     }
 
-    return occurrenceCounts.filter { it.value >= 2 }
-        .toList()
+    // Sort by match count descending (highest overlap first), then alphabetically by name
+    return occurrenceCounts.toList()
         .sortedWith(
             compareByDescending<Pair<String, Int>> { it.second }
                 .thenBy { allMealsById[it.first]?.strMeal.orEmpty() }

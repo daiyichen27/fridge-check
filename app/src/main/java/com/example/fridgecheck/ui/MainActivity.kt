@@ -52,8 +52,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
 import com.example.fridgecheck.BuildConfig
+import androidx.compose.foundation.background
 import com.example.fridgecheck.data.CameraManager
 import com.example.fridgecheck.data.GeminiManager
+import com.example.fridgecheck.data.PantryManager
 import com.example.fridgecheck.data.Recipe
 import com.example.fridgecheck.data.RecipeService
 import com.example.fridgecheck.data.countMissingIngredients
@@ -89,6 +91,11 @@ class MainActivity : ComponentActivity() {
                 // The names the user has currently "checked"
                 var selectedIngredients by remember { mutableStateOf(setOf<String>()) }
 
+                // Pantry staples manager & persisted state
+                val pantryManager = remember { PantryManager(context) }
+                var pantryStaples by remember { mutableStateOf(pantryManager.getPantryStaples()) }
+                var showPantrySettings by remember { mutableStateOf(false) }
+
                 // A flag to show/hide the selection menu
                 var showSelectionMenu by remember { mutableStateOf(false) }
 
@@ -119,6 +126,33 @@ class MainActivity : ComponentActivity() {
                             controller = cameraManager.controller,
                             modifier = Modifier.fillMaxSize()
                         )
+
+                        // Button to configure default pantry staples
+                        androidx.compose.material3.Surface(
+                            onClick = { showPantrySettings = true },
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(top = 48.dp, end = 16.dp),
+                            shape = RoundedCornerShape(20.dp),
+                            color = Color.Black.copy(alpha = 0.65f)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = "🧂",
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                                Text(
+                                    text = "Default Staples",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = Color.White,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
 
                         Column(
                             modifier = Modifier
@@ -213,6 +247,8 @@ class MainActivity : ComponentActivity() {
                             IngredientSelectionContent(
                                 ingredients = ingredientList,
                                 selected = selectedIngredients,
+                                staplesCount = pantryStaples.size,
+                                onOpenPantrySettings = { showPantrySettings = true },
                                 onSelectionChange = { selectedIngredients = it },
                                 onAddIngredient = { newItem ->
                                     if (!ingredientList.contains(newItem)) {
@@ -240,7 +276,14 @@ class MainActivity : ComponentActivity() {
                                                 cleanIngredients.map { ingredient ->
                                                     async {
                                                         try {
-                                                            val response = recipeService.filterByIngredient(apiKey, ingredient)
+                                                            val formatted = ingredient.replace(" ", "_")
+                                                            var response = recipeService.filterByIngredient(apiKey, formatted)
+                                                            if (response.meals.isNullOrEmpty() && formatted.contains("_")) {
+                                                                val fallback = recipeService.filterByIngredient(apiKey, ingredient)
+                                                                if (!fallback.meals.isNullOrEmpty()) {
+                                                                    response = fallback
+                                                                }
+                                                            }
                                                             response.meals ?: emptyList()
                                                         } catch (e: Exception) {
                                                             Log.e("FridgeCheck", "Failed to filter for $ingredient", e)
@@ -250,11 +293,11 @@ class MainActivity : ComponentActivity() {
                                                 }.awaitAll()
                                             }
 
-                                            // Find recipes that overlap across multiple ingredient queries
+                                            // Find recipes matching one or more ingredients, ranked by overlap count
                                             val overlappingSummaries = findOverlappingMeals(queryResults)
 
                                             if (overlappingSummaries.isEmpty()) {
-                                                resultText = "No overlapping recipes found for these items."
+                                                resultText = "No recipes found matching these ingredients."
                                                 recipeResults = emptyList()
                                                 return@launch
                                             }
@@ -281,8 +324,10 @@ class MainActivity : ComponentActivity() {
                                                 recipe.label.all { it.code < 128 }
                                             }
 
+                                            // Include pantry staples when counting missing ingredients
+                                            val allOwnedIngredients = selectedIngredients + pantryStaples
                                             val sortedList = cleanRecipes.sortedBy { recipe ->
-                                                countMissingIngredients(recipe, selectedIngredients)
+                                                countMissingIngredients(recipe, allOwnedIngredients)
                                             }
 
                                             if (sortedList.isEmpty()) {
@@ -338,7 +383,7 @@ class MainActivity : ComponentActivity() {
                                         val recipe = recipeResults[index]
                                         RecipeCard(
                                             recipe = recipe,
-                                            ownedIngredients = selectedIngredients,
+                                            ownedIngredients = selectedIngredients + pantryStaples,
                                             onClick = {
                                                 val uri = recipe.url.toUri()
 
@@ -394,6 +439,26 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     }
+
+                    if (showPantrySettings) {
+                        ModalBottomSheet(
+                            onDismissRequest = { showPantrySettings = false },
+                            sheetState = rememberModalBottomSheetState()
+                        ) {
+                            PantrySettingsContent(
+                                staples = pantryStaples,
+                                onStaplesChange = { updated ->
+                                    pantryStaples = updated
+                                    pantryManager.savePantryStaples(updated)
+                                },
+                                onResetDefaults = {
+                                    val defaults = pantryManager.resetToDefaults()
+                                    pantryStaples = defaults
+                                },
+                                onClose = { showPantrySettings = false }
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -405,6 +470,8 @@ class MainActivity : ComponentActivity() {
 fun IngredientSelectionContent(
     ingredients: List<String>,
     selected: Set<String>,
+    staplesCount: Int = 0,
+    onOpenPantrySettings: (() -> Unit)? = null,
     onSelectionChange: (Set<String>) -> Unit,
     onAddIngredient: (String) -> Unit,
     onSearch: () -> Unit
@@ -440,6 +507,25 @@ fun IngredientSelectionContent(
             style = MaterialTheme.typography.bodyMedium,
             color = Color.Gray
         )
+
+        if (onOpenPantrySettings != null) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "🧂 Default staples: $staplesCount active",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                androidx.compose.material3.TextButton(onClick = onOpenPantrySettings) {
+                    Text("Set Default Staples", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
 
         Spacer(modifier = Modifier.height(16.dp))
 
