@@ -23,6 +23,7 @@ data class MealDBLookupResponse(
 data class MealDetail(
     val idMeal: String,
     val strMeal: String,
+    val strCategory: String? = null,
     val strMealThumb: String? = null,
     val strInstructions: String? = null,
     val strSource: String? = null,
@@ -113,6 +114,7 @@ data class MealDetail(
             image = strMealThumb.orEmpty(),
             url = recipeUrl,
             source = "TheMealDB",
+            category = strCategory.orEmpty(),
             ingredientLines = toIngredientLines()
         )
     }
@@ -125,6 +127,7 @@ fun MealSummary.toFallbackRecipe(): Recipe {
         image = strMealThumb.orEmpty(),
         url = "https://www.themealdb.com/meal/$idMeal",
         source = "TheMealDB",
+        category = "",
         ingredientLines = emptyList()
     )
 }
@@ -135,6 +138,7 @@ data class Recipe(
     val image: String,
     val url: String,
     val source: String = "TheMealDB",
+    val category: String = "",
     val ingredientLines: List<String> = emptyList()
 )
 

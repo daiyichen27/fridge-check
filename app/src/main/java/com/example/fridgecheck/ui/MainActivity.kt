@@ -9,12 +9,10 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.browser.customtabs.CustomTabColorSchemeParams
 import androidx.browser.customtabs.CustomTabsIntent
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -47,19 +45,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
 import com.example.fridgecheck.BuildConfig
-import androidx.compose.foundation.background
 import com.example.fridgecheck.data.CameraManager
 import com.example.fridgecheck.data.GeminiManager
 import com.example.fridgecheck.data.PantryManager
 import com.example.fridgecheck.data.Recipe
 import com.example.fridgecheck.data.RecipeService
+import com.example.fridgecheck.data.calculateRecipeScore
 import com.example.fridgecheck.data.countMissingIngredients
 import com.example.fridgecheck.data.findOverlappingMeals
+import com.example.fridgecheck.data.shouldKeepRecipeForProteins
 import com.example.fridgecheck.data.toFallbackRecipe
 import com.example.fridgecheck.ui.theme.FridgeCheckTheme
 import kotlinx.coroutines.async
@@ -91,10 +89,10 @@ class MainActivity : ComponentActivity() {
                 // The names the user has currently "checked"
                 var selectedIngredients by remember { mutableStateOf(setOf<String>()) }
 
-                // Pantry staples manager & persisted state
+                // Default ingredients manager & persisted state
                 val pantryManager = remember { PantryManager(context) }
-                var pantryStaples by remember { mutableStateOf(pantryManager.getPantryStaples()) }
-                var showPantrySettings by remember { mutableStateOf(false) }
+                var defaultIngredients by remember { mutableStateOf(pantryManager.getDefaultIngredients()) }
+                var showDefaultIngredientsSettings by remember { mutableStateOf(false) }
 
                 // A flag to show/hide the selection menu
                 var showSelectionMenu by remember { mutableStateOf(false) }
@@ -127,9 +125,9 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier.fillMaxSize()
                         )
 
-                        // Button to configure default pantry staples
+                        // Button to configure default ingredients
                         androidx.compose.material3.Surface(
-                            onClick = { showPantrySettings = true },
+                            onClick = { showDefaultIngredientsSettings = true },
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
                                 .padding(top = 48.dp, end = 16.dp),
@@ -146,7 +144,7 @@ class MainActivity : ComponentActivity() {
                                     style = MaterialTheme.typography.bodyMedium
                                 )
                                 Text(
-                                    text = "Default Staples",
+                                    text = "Default Ingredients",
                                     style = MaterialTheme.typography.labelLarge,
                                     color = Color.White,
                                     fontWeight = FontWeight.SemiBold
@@ -226,16 +224,24 @@ class MainActivity : ComponentActivity() {
                             }
                         }
 
-                        Text(
-                            text = resultText,
+                        // Floating status indicator (e.g. "Ready to scan!")
+                        androidx.compose.material3.Surface(
                             modifier = Modifier
-                                .align(Alignment.TopCenter) // Centers it horizontally at the top
-                                .padding(top = 100.dp)      // Pushes it down below the camera/status bar
-                                .padding(horizontal = 24.dp), // Keeps it away from the side edges
-                            color = Color.White,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center, // Centers the lines of text
-                            style = MaterialTheme.typography.titleLarge // Makes it more readable
-                        )
+                                .align(Alignment.TopCenter)
+                                .padding(top = 135.dp)
+                                .padding(horizontal = 24.dp),
+                            shape = RoundedCornerShape(20.dp),
+                            color = Color.Black.copy(alpha = 0.55f)
+                        ) {
+                            Text(
+                                text = resultText,
+                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
+                                color = Color.White,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
                     }
 
                     if (showSelectionMenu) {
@@ -247,8 +253,8 @@ class MainActivity : ComponentActivity() {
                             IngredientSelectionContent(
                                 ingredients = ingredientList,
                                 selected = selectedIngredients,
-                                staplesCount = pantryStaples.size,
-                                onOpenPantrySettings = { showPantrySettings = true },
+                                defaultIngredientsCount = defaultIngredients.size,
+                                onOpenDefaultIngredients = { showDefaultIngredientsSettings = true },
                                 onSelectionChange = { selectedIngredients = it },
                                 onAddIngredient = { newItem ->
                                     if (!ingredientList.contains(newItem)) {
@@ -302,8 +308,8 @@ class MainActivity : ComponentActivity() {
                                                 return@launch
                                             }
 
-                                            // Limit detail lookups to avoid excessive network requests (top 25)
-                                            val candidates = overlappingSummaries.take(25)
+                                            // Limit detail lookups to avoid excessive network requests (top 30)
+                                            val candidates = overlappingSummaries.take(30)
                                             val fullRecipes = coroutineScope {
                                                 candidates.map { summary ->
                                                     async {
@@ -319,16 +325,22 @@ class MainActivity : ComponentActivity() {
                                                 }.awaitAll()
                                             }
 
-                                            // Filtration: Only English characters in title
-                                            val cleanRecipes = fullRecipes.filter { recipe ->
-                                                recipe.label.all { it.code < 128 }
-                                            }
+                                            // Filtration: Only English characters in title, and filter out competing unowned proteins
+                                            val cleanRecipes = fullRecipes
+                                                .filter { recipe -> recipe.label.all { it.code < 128 } }
+                                                .filter { recipe -> shouldKeepRecipeForProteins(recipe, selectedIngredients) }
 
-                                            // Include pantry staples when counting missing ingredients
-                                            val allOwnedIngredients = selectedIngredients + pantryStaples
-                                            val sortedList = cleanRecipes.sortedBy { recipe ->
-                                                countMissingIngredients(recipe, allOwnedIngredients)
-                                            }
+                                            // Multifactor ranking:
+                                            // 1. Higher multifactor score (scanned matches, main course category boost, coverage)
+                                            // 2. Fewer missing ingredients as tie-breaker
+                                            val allOwnedIngredients = selectedIngredients + defaultIngredients
+                                            val sortedList = cleanRecipes.sortedWith(
+                                                compareByDescending<Recipe> { recipe ->
+                                                    calculateRecipeScore(recipe, selectedIngredients, defaultIngredients)
+                                                }.thenBy { recipe ->
+                                                    countMissingIngredients(recipe, allOwnedIngredients)
+                                                }
+                                            )
 
                                             if (sortedList.isEmpty()) {
                                                 // 1. The Recipe BottomSheet stays HIDDEN (showRecipeResults remains false)
@@ -383,7 +395,7 @@ class MainActivity : ComponentActivity() {
                                         val recipe = recipeResults[index]
                                         RecipeCard(
                                             recipe = recipe,
-                                            ownedIngredients = selectedIngredients + pantryStaples,
+                                            ownedIngredients = selectedIngredients + defaultIngredients,
                                             onClick = {
                                                 val uri = recipe.url.toUri()
 
@@ -440,22 +452,22 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    if (showPantrySettings) {
+                    if (showDefaultIngredientsSettings) {
                         ModalBottomSheet(
-                            onDismissRequest = { showPantrySettings = false },
+                            onDismissRequest = { showDefaultIngredientsSettings = false },
                             sheetState = rememberModalBottomSheetState()
                         ) {
                             PantrySettingsContent(
-                                staples = pantryStaples,
-                                onStaplesChange = { updated ->
-                                    pantryStaples = updated
-                                    pantryManager.savePantryStaples(updated)
+                                defaultIngredients = defaultIngredients,
+                                onIngredientsChange = { updated ->
+                                    defaultIngredients = updated
+                                    pantryManager.saveDefaultIngredients(updated)
                                 },
                                 onResetDefaults = {
                                     val defaults = pantryManager.resetToDefaults()
-                                    pantryStaples = defaults
+                                    defaultIngredients = defaults
                                 },
-                                onClose = { showPantrySettings = false }
+                                onClose = { showDefaultIngredientsSettings = false }
                             )
                         }
                     }
@@ -465,13 +477,12 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class) // Required for FlowRow in 2026
 @Composable
 fun IngredientSelectionContent(
     ingredients: List<String>,
     selected: Set<String>,
-    staplesCount: Int = 0,
-    onOpenPantrySettings: (() -> Unit)? = null,
+    defaultIngredientsCount: Int = 0,
+    onOpenDefaultIngredients: (() -> Unit)? = null,
     onSelectionChange: (Set<String>) -> Unit,
     onAddIngredient: (String) -> Unit,
     onSearch: () -> Unit
@@ -508,21 +519,31 @@ fun IngredientSelectionContent(
             color = Color.Gray
         )
 
-        if (onOpenPantrySettings != null) {
+        if (onOpenDefaultIngredients != null) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(top = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(
-                    text = "🧂 Default staples: $staplesCount active",
+                    text = "🧂 Default ingredients: $defaultIngredientsCount active",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary
                 )
-                androidx.compose.material3.TextButton(onClick = onOpenPantrySettings) {
-                    Text("Set Default Staples", style = MaterialTheme.typography.bodySmall)
+                androidx.compose.material3.Surface(
+                    onClick = onOpenDefaultIngredients,
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer
+                ) {
+                    Text(
+                        text = "Edit",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                    )
                 }
             }
         }
@@ -625,10 +646,7 @@ fun IngredientSelectionContent(
 @Composable
 fun RecipeCard(recipe: Recipe, ownedIngredients: Set<String>, onClick: () -> Unit) {
     val missingCount = remember(recipe, ownedIngredients) {
-        val matches = recipe.ingredientLines.count { line ->
-            ownedIngredients.any { owned -> line.contains(owned, ignoreCase = true) }
-        }
-        (recipe.ingredientLines.size - matches).coerceAtLeast(0)
+        countMissingIngredients(recipe, ownedIngredients)
     }
 
     androidx.compose.material3.Card(
@@ -655,6 +673,14 @@ fun RecipeCard(recipe: Recipe, ownedIngredients: Set<String>, onClick: () -> Uni
             Spacer(modifier = Modifier.width(16.dp))
 
             Column(modifier = Modifier.weight(1f)) {
+                if (recipe.category.isNotBlank()) {
+                    Text(
+                        text = recipe.category.uppercase(),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
                 Text(
                     text = recipe.label,
                     style = MaterialTheme.typography.titleMedium,
