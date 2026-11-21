@@ -4,8 +4,10 @@ import com.example.fridgecheck.data.MealDetail
 import com.example.fridgecheck.data.MealSummary
 import com.example.fridgecheck.data.Recipe
 import com.example.fridgecheck.data.calculateRecipeScore
+import com.example.fridgecheck.data.cleanInputIngredient
 import com.example.fridgecheck.data.countMissingIngredients
 import com.example.fridgecheck.data.findOverlappingMeals
+import com.example.fridgecheck.data.getIngredientSearchCandidates
 import com.example.fridgecheck.data.isTrivialOrGarnish
 import com.example.fridgecheck.data.shouldKeepRecipeForProteins
 import org.junit.Assert.assertEquals
@@ -47,7 +49,7 @@ class RecipeSortingTest {
         )
         val owned = setOf("Chicken", "Onion")
         val missing = countMissingIngredients(recipe, owned)
-        assertEquals(1, missing) // carrots is missing
+        assertEquals(1, missing) // carrots are missing
     }
 
     @Test
@@ -209,7 +211,7 @@ class RecipeSortingTest {
         val scanned = setOf("Chicken Thigh", "Cucumber")
         val defaults = setOf("Salt", "Pepper", "Olive Oil", "Garlic")
 
-        // A chicken entree with multiple ingredients (e.g. 7 ingredients, 2 missing)
+        // A chicken entrée with multiple ingredients (e.g. 7 ingredients, 2 missing)
         val chickenEntree = Recipe(
             label = "Garlic Herb Roasted Chicken Thighs",
             image = "",
@@ -364,5 +366,40 @@ class RecipeSortingTest {
         assertFalse(isTrivialOrGarnish("500g Chicken Breast"))
         assertFalse(isTrivialOrGarnish("2 Salmon Fillets"))
         assertFalse(isTrivialOrGarnish("1 large Yellow Onion"))
+    }
+
+    @Test
+    fun `cleanInputIngredient strips conjunctions and filler prefixes`() {
+        assertEquals("noodles", cleanInputIngredient("and noodles"))
+        assertEquals("spring onions", cleanInputIngredient("& spring onions"))
+        assertEquals("chicken thigh", cleanInputIngredient("with chicken thigh"))
+        assertEquals("rice", cleanInputIngredient("some rice"))
+        assertEquals("garlic", cleanInputIngredient("a garlic"))
+        assertEquals("apple", cleanInputIngredient("an apple"))
+        assertEquals("salt", cleanInputIngredient("salt"))
+    }
+
+    @Test
+    fun `getIngredientSearchCandidates generates robust query variations`() {
+        val chickenThighCandidates = getIngredientSearchCandidates("chicken thigh")
+        assertTrue(chickenThighCandidates.contains("chicken_thigh"))
+        assertTrue(chickenThighCandidates.contains("chicken_thighs"))
+        assertTrue(chickenThighCandidates.contains("chicken"))
+
+        val andNoodlesCandidates = getIngredientSearchCandidates("and noodles")
+        assertTrue(andNoodlesCandidates.contains("noodles"))
+        assertTrue(andNoodlesCandidates.contains("noodle"))
+
+        val springOnionsCandidates = getIngredientSearchCandidates("spring onions")
+        assertTrue(springOnionsCandidates.contains("spring_onions"))
+        assertTrue(springOnionsCandidates.contains("spring_onion"))
+
+        val scallionsCandidates = getIngredientSearchCandidates("scallions")
+        assertTrue(scallionsCandidates.contains("scallions"))
+        assertTrue(scallionsCandidates.contains("spring_onions"))
+
+        val groundBeefCandidates = getIngredientSearchCandidates("ground beef")
+        assertTrue(groundBeefCandidates.contains("minced_beef"))
+        assertTrue(groundBeefCandidates.contains("beef"))
     }
 }

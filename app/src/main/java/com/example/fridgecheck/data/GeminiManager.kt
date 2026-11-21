@@ -20,15 +20,23 @@ class GeminiManager(apiKey: String) {
         try {
             Log.d("GEMINI_DEBUG", "1. Starting Analysis...")
 
+            val startTime = System.currentTimeMillis()
+            val scaledBitmap = scaleDownForGemini(bitmap, maxDimension = 1024)
+            Log.d(
+                "GEMINI_DEBUG",
+                "Original size: ${bitmap.width}x${bitmap.height}, Scaled size: ${scaledBitmap.width}x${scaledBitmap.height}"
+            )
+
             val inputContent = content {
-                image(bitmap)
+                image(scaledBitmap)
                 text("Analyze this image. If you see food items or ingredients, list them separated by commas (e.g., Milk, Eggs). If the image does not contain food or ingredients, return exactly the phrase 'NO_FOOD_DETECTED'. Do not describe the image.")
             }
 
             Log.d("GEMINI_DEBUG", "2. Sending to Google Servers...")
             val response = generativeModel.generateContent(inputContent)
+            val duration = System.currentTimeMillis() - startTime
 
-            Log.d("GEMINI_DEBUG", "3. Success! Received: ${response.text}")
+            Log.d("GEMINI_DEBUG", "3. Success in ${duration}ms! Received: ${response.text}")
             response.text
         } catch (e: Exception) {
             // THIS LINE IS THE KEY: It prints the actual Google API error
@@ -37,5 +45,18 @@ class GeminiManager(apiKey: String) {
         }
     }
 
-    suspend fun analyzeFridgeImage(bitmap: Bitmap): String? = analyzeFoodImage(bitmap)
+    private fun scaleDownForGemini(bitmap: Bitmap, maxDimension: Int = 1024): Bitmap {
+        val width = bitmap.width
+        val height = bitmap.height
+        if (width <= maxDimension && height <= maxDimension) {
+            return bitmap
+        }
+        val ratio = width.toFloat() / height.toFloat()
+        val (newWidth, newHeight) = if (width > height) {
+            maxDimension to (maxDimension / ratio).toInt().coerceAtLeast(1)
+        } else {
+            (maxDimension * ratio).toInt().coerceAtLeast(1) to maxDimension
+        }
+        return Bitmap.createScaledBitmap(bitmap, newWidth, newHeight, true)
+    }
 }

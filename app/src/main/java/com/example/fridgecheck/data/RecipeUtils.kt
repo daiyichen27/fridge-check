@@ -1,5 +1,126 @@
 package com.example.fridgecheck.data
 
+/**
+ * Cleans user-entered ingredient strings by stripping leading conjunctions or filler words.
+ * (e.g. "and noodles" -> "noodles", "& spring onions" -> "spring onions")
+ */
+fun cleanInputIngredient(raw: String): String {
+    var cleaned = raw.trim()
+    val prefixes = listOf("and ", "& ", "with ", "or ", "some ", "a ", "an ")
+    for (prefix in prefixes) {
+        if (cleaned.startsWith(prefix, ignoreCase = true)) {
+            cleaned = cleaned.substring(prefix.length).trim()
+        }
+    }
+    return cleaned
+}
+
+/**
+ * Returns prioritized query string candidates for TheMealDB API search.
+ * TheMealDB uses strict string matching and has inconsistent singular/plural naming
+ * (e.g. requires "chicken_thighs" plural, "mushrooms" plural, but "onion" / "onions", "chicken" base).
+ */
+fun getIngredientSearchCandidates(rawIngredient: String): List<String> {
+    val cleaned = cleanInputIngredient(rawIngredient).lowercase()
+    if (cleaned.isEmpty()) return emptyList()
+
+    val candidates = mutableListOf<String>()
+    fun addCandidate(term: String) {
+        val formatted = term.trim().replace(" ", "_")
+        if (formatted.isNotEmpty() && !candidates.contains(formatted)) {
+            candidates.add(formatted)
+        }
+    }
+
+    // 1. Direct formatted query
+    addCandidate(cleaned)
+
+    // 2. Singular / Plural variation
+    if (cleaned.endsWith("s")) {
+        // Try singular
+        if (cleaned.endsWith("es") && cleaned.length > 3) {
+            addCandidate(cleaned.removeSuffix("es"))
+        }
+        addCandidate(cleaned.removeSuffix("s"))
+    } else {
+        // Try plural
+        addCandidate("${cleaned}s")
+        addCandidate("${cleaned}es")
+    }
+
+    // 3. Common ingredient synonyms & TheMealDB naming quirks
+    when {
+        cleaned.contains("scallion") || cleaned.contains("green onion") -> {
+            addCandidate("spring_onions")
+        }
+        cleaned.contains("spring onion") -> {
+            addCandidate("spring_onions")
+        }
+        cleaned.contains("ground beef") || cleaned.contains("beef mince") -> {
+            addCandidate("minced_beef")
+            addCandidate("beef")
+        }
+        cleaned.contains("ground pork") || cleaned.contains("pork mince") -> {
+            addCandidate("pork")
+        }
+        cleaned.contains("ground chicken") || cleaned.contains("chicken mince") -> {
+            addCandidate("ground_chicken")
+            addCandidate("chicken")
+        }
+        cleaned.contains("cilantro") -> {
+            addCandidate("coriander")
+        }
+        cleaned.contains("aubergine") -> {
+            addCandidate("eggplant")
+        }
+        cleaned.contains("courgette") -> {
+            addCandidate("zucchini")
+        }
+        cleaned.contains("bell pepper") || cleaned.contains("capsicum") -> {
+            addCandidate("green_pepper")
+            addCandidate("red_pepper")
+            addCandidate("pepper")
+        }
+        cleaned.contains("chili") || cleaned.contains("chilli") -> {
+            addCandidate("red_chilli")
+            addCandidate("chilli")
+        }
+        cleaned.contains("ramen") || cleaned.contains("udon") || cleaned.contains("soba") -> {
+            addCandidate("udon_noodles")
+            addCandidate("noodles")
+        }
+        cleaned.contains("pasta") || cleaned.contains("spaghetti") -> {
+            addCandidate("noodles")
+        }
+    }
+
+    // 4. Base protein / parent ingredient fallback
+    if (cleaned.contains("chicken") && cleaned != "chicken") {
+        addCandidate("chicken")
+    }
+    if (cleaned.contains("beef") && cleaned != "beef") {
+        addCandidate("beef")
+    }
+    if (cleaned.contains("pork") && cleaned != "pork") {
+        addCandidate("pork")
+    }
+    if (cleaned.contains("salmon") && cleaned != "salmon") {
+        addCandidate("salmon")
+    }
+    if ((cleaned.contains("shrimp") || cleaned.contains("prawn")) && !cleaned.contains("prawns")) {
+        addCandidate("prawns")
+        addCandidate("king_prawns")
+    }
+    if (cleaned.contains("lamb") && cleaned != "lamb") {
+        addCandidate("lamb")
+    }
+    if (cleaned.contains("noodle") && cleaned != "noodles") {
+        addCandidate("noodles")
+    }
+
+    return candidates
+}
+
 val MAIN_COURSE_CATEGORIES = setOf(
     "chicken",
     "beef",
@@ -40,7 +161,7 @@ fun findOverlappingMeals(queryResults: List<List<MealSummary>>): List<MealSummar
     val result = mutableListOf<MealSummary>()
     val addedIds = mutableSetOf<String>()
 
-    // 1. Add meals that overlap across multiple queries (from highest overlap down to 2)
+    // 1. Add meals that overlap across multiple queries (from the highest overlap down to 2)
     for (count in maxCount downTo 2) {
         val mealsAtCount = occurrenceCounts.filter { it.value == count }
             .keys
@@ -166,7 +287,7 @@ fun isTrivialOrGarnish(ingredientLine: String): Boolean {
 }
 
 /**
- * Calculates a multi-factor score for a recipe to prioritize:
+ * Calculates a multifactor score for a recipe to prioritize:
  * 1. Recipes matching more user-scanned ingredients (+50 points per scanned ingredient matched).
  * 2. Main course categories (+20 points for hearty dinner categories like Chicken, Beef, Pork, Seafood, etc.).
  * 3. Recipes where assumed default ingredients fill remaining gaps (+2 points per default ingredient).
