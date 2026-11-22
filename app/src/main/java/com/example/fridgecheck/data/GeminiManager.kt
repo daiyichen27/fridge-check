@@ -7,6 +7,7 @@ import com.google.ai.client.generativeai.GenerativeModel
 import com.google.ai.client.generativeai.type.content
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import androidx.core.graphics.scale
 
 class GeminiManager(apiKey: String) {
     // 1. Initialize the model (Flash 1.5 is best for fast image reasoning)
@@ -57,6 +58,6 @@ class GeminiManager(apiKey: String) {
         } else {
             (maxDimension * ratio).toInt().coerceAtLeast(1) to maxDimension
         }
-        return Bitmap.createScaledBitmap(bitmap, newWidth, newHeight, true)
+        return bitmap.scale(newWidth, newHeight)
     }
 }
